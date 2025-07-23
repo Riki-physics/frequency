@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>FFT ピーク周波数＋ドレミ音名</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin: 20px; }
+    table { margin: 20px auto; border-collapse: collapse; }
+    th, td { border: 1px solid #ccc; padding: 6px 12px; }
+    th { background: #f0f0f0; }
+    canvas { margin-top: 20px; background: #fff; border: 1px solid #ccc; }
+    button { font-size: 1.2em; padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h1>FFT ピーク周波数と音名（ドレミ表記）</h1>
+  <button onclick="start()">▶ 測定開始</button>
+  <canvas id="spectrum" width="600" height="200"></canvas>
+
+  <table>
+    <thead>
+      <tr><th>時刻</th><th>ピーク周波数（Hz）</th><th>音名（ドレミ）</th></tr>
+    </thead>
+    <tbody id="logTable"></tbody>
+  </table>
+
+  <script>
+    let audioContext, analyser, dataArray, canvas, ctx;
+
+    async function start() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(stream);
+
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      const bufferLength = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+
+      source.connect(analyser);
+
+      canvas = document.getElementById('spectrum');
+      ctx = canvas.getContext('2d');
+
+      setInterval(() => analyze(bufferLength), 1000);
+    }
+
+    function analyze(bufferLength) {
+      analyser.getByteFrequencyData(dataArray);
+
+      const nyquist = audioContext.sampleRate / 2;
+      const freqPerBin = nyquist / bufferLength;
+      const maxFreq = 2000;
+      const maxBin = Math.floor(maxFreq / freqPerBin);
+
+      let maxIndex = 0;
+      for (let i = 1; i < maxBin; i++) {
+        if (dataArray[i] > dataArray[maxIndex]) {
+          maxIndex = i;
+        }
+      }
+
+      const peakFreq = maxIndex * freqPerBin;
+      const peakFreqStr = peakFreq.toFixed(2);
+      const noteName = getDoReMiName(peakFreq);
+      const time = new Date().toLocaleTimeString();
+
+      addLogRow(time, peakFreqStr, noteName);
+      drawSpectrum(maxBin, freqPerBin);
+    }
+
+    function drawSpectrum(maxBin, freqPerBin) {
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      // グラフ描画
+      const barWidth = width / maxBin;
+      for (let i = 0; i < maxBin; i++) {
+        const value = dataArray[i];
+        ctx.fillStyle = `rgb(${value + 100}, 50, 50)`;
+        const barHeight = (value / 255) * (height - 30); // 上に余白
+        ctx.fillRect(i * barWidth, height - barHeight - 20, barWidth, barHeight);
+      }
+
+      // 軸ラベル（横軸：周波数）
+      ctx.fillStyle = "#000";
+      ctx.font = "12px sans-serif";
+      ctx.textAlign = "center";
+
+      const labelHz = [0, 500, 1000, 1500, 2000];
+      for (let hz of labelHz) {
+        const x = hz / 2000 * width;
+        ctx.fillText(`${hz}Hz`, x, height - 5);
+        ctx.beginPath();
+        ctx.moveTo(x, height - 20);
+        ctx.lineTo(x, height - 25);
+        ctx.strokeStyle = "#333";
+        ctx.stroke();
+      }
+    }
+
+    function addLogRow(time, freq, note) {
+      const log = document.getElementById("logTable");
+      const row = document.createElement("tr");
+
+      [time, freq, note].forEach(text => {
+        const cell = document.createElement("td");
+        cell.textContent = text;
+        row.appendChild(cell);
+      });
+
+      log.insertBefore(row, log.firstChild);
+    }
+
+    function getDoReMiName(freq) {
+      if (freq < 20 || freq > 5000) return '（範囲外）';
+
+      const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F',
+                         'F#', 'G', 'G#', 'A', 'A#', 'B'];
+      const doremiNames = ['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ',
+                           'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'];
+
+      const noteNumber = 12 * Math.log2(freq / 440) + 69;
+      const rounded = Math.round(noteNumber);
+      const noteIndex = rounded % 12;
+      const octave = Math.floor(rounded / 12) - 1;
+      return `${doremiNames[noteIndex]}${octave}`;
+    }
+  </script>
+</body>
+</html>
